@@ -1,13 +1,12 @@
-from django.shortcuts import render
 from rest_framework import generics, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework import status
 from rest_framework_simplejwt.views import TokenObtainPairView
-
-from intelligence.models import CustomUser
-from intelligence.serializers.auth_serializers import UserSerializer, MyTokenObtainPairSerializer
+from .permissions import IsAdminUserCustom
+from .models import CustomUser
+from .serializers import UserSerializer, MyTokenObtainPairSerializer
 
 
 class RegisterView(generics.CreateAPIView):
