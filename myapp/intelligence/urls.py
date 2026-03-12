@@ -4,14 +4,14 @@ from rest_framework_simplejwt.views import (
     TokenRefreshView,
 )
 
-from intelligence.views.auth_views import LogoutView
+from .views import LogoutView, RegisterView, MyTokenObtainPairView
 
 urlpatterns=[
-    # JWT authentication
-# path('api/register/', RegisterView.as_view(), name='register'),
-# path('api/token/',  MyTokenObtainPairView.as_view(), name='token_obtain_pair'),
-path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-path('api/logout/', LogoutView.as_view(), name='logout'),
+# JWT authentication
+path('register/', RegisterView.as_view(), name='register'),
+path('token/',  MyTokenObtainPairView.as_view(), name='token_obtain_pair'),
+path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+path('logout/', LogoutView.as_view(), name='logout'), #need to send the access token in bearer then only work
 
 
 ]
