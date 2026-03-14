@@ -165,3 +165,83 @@ class COTopicMapping(models.Model):
 
     def __str__(self):
         return f"{self.co_id} - {self.topic.topic_name}"
+
+
+
+#StudentExam table (per exam one row)
+class StudentExam(models.Model):
+
+    EXAM_TYPES = (
+        ("IAT1", "IAT1"),
+        ("IAT2", "IAT2"),
+        ("IAT3", "IAT3"),
+        ("MODEL", "MODEL"),
+        ("SEM", "SEM"),
+    )
+
+    exam_type = models.CharField(
+        max_length=20,
+        choices=EXAM_TYPES
+    )
+
+    subject = models.ForeignKey(
+        Subject,
+        on_delete=models.CASCADE
+    )
+
+    department = models.ForeignKey(
+        Department,
+        on_delete=models.CASCADE
+    )
+
+    batch = models.IntegerField()
+
+    semester = models.IntegerField()
+
+    exam_date = models.DateField()
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "student_exam"
+
+        unique_together = (
+            "exam_type",
+            "subject",
+            "department",
+            "batch",
+            "semester",
+        )
+
+    def __str__(self):
+        return f"{self.exam_type} - {self.subject} - Sem {self.semester}"
+
+#Studnetmars table
+class StudentMarks(models.Model):
+
+    student = models.ForeignKey(
+        Student,
+        on_delete=models.CASCADE
+    )
+
+    exam = models.ForeignKey(
+        StudentExam,
+        on_delete=models.CASCADE,
+        related_name="marks"
+    )
+
+    co = models.ForeignKey(
+        COTopicMapping,
+        on_delete=models.CASCADE
+    )
+
+    max_marks = models.IntegerField(default=0)
+
+    obtained_marks = models.IntegerField()
+
+    class Meta:
+        db_table = "student_marks"
+        unique_together = ("student", "exam", "co")
+
+    def __str__(self):
+        return f"{self.student} - {self.co.co_id}"
