@@ -1,3 +1,4 @@
+from django.db.models import Prefetch
 from rest_framework import generics, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -7,7 +8,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from .permissions import IsAdminUserCustom
 from .models import *
 from .serializers import UserSerializer, MyTokenObtainPairSerializer, StaffCreateSerializer, StaffListSerializer, \
-    DepartmentSerializer, BatchStaffMappingSerializer
+    DepartmentSerializer, BatchStaffMappingSerializer, BatchSerializer
 
 
 class RegisterView(generics.CreateAPIView):
@@ -41,7 +42,12 @@ class AdminCreateStaffView(generics.CreateAPIView):
 
 class AdminStaffListView(generics.ListAPIView):
 
-    queryset = Staff.objects.select_related("user","department").all()
+    queryset = Staff.objects.select_related(
+        "user", "department"
+    ).prefetch_related(
+        Prefetch("batch_assignments", queryset=BatchStaffMapping.objects.select_related("batch"))
+    )
+
     serializer_class = StaffListSerializer
     permission_classes = [IsAdminUserCustom]
 
@@ -92,3 +98,8 @@ class AssignStaffToBatchView(generics.CreateAPIView):
     queryset = BatchStaffMapping.objects.all()
     serializer_class = BatchStaffMappingSerializer
     permission_classes = [IsAdminUserCustom]
+
+class BatchListView(generics.ListAPIView):
+
+    queryset = Batch.objects.all()
+    serializer_class = BatchSerializer

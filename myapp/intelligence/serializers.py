@@ -104,10 +104,18 @@ class StaffCreateSerializer(serializers.ModelSerializer):
         return staff
 
 
+class BatchSimpleSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Batch
+        fields = ["id", "batch_name"]
+
 class StaffListSerializer(serializers.ModelSerializer):
 
     email = serializers.CharField(source="user.email")
     username = serializers.CharField(source="user.username")
+
+    batches = serializers.SerializerMethodField()
 
     class Meta:
         model = Staff
@@ -116,11 +124,18 @@ class StaffListSerializer(serializers.ModelSerializer):
             "staff_name",
             "username",
             "email",
-            "department"
+            "department",
+            "batches"
         ]
 
-from rest_framework import serializers
-from .models import Department
+    def get_batches(self, obj):
+        return [
+            {
+                "id": mapping.batch.id,
+                "batch_name": mapping.batch.batch_name
+            }
+            for mapping in obj.batch_assignments.all()
+        ]
 
 
 class DepartmentSerializer(serializers.ModelSerializer):
@@ -134,3 +149,9 @@ class BatchStaffMappingSerializer(serializers.ModelSerializer):
     class Meta:
         model = BatchStaffMapping
         fields = ["id", "staff", "department", "batch"]
+
+class BatchSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Batch
+        fields = "__all__"
