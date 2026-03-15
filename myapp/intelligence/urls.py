@@ -27,6 +27,9 @@ path("admin/departments/create/", AdminCreateDepartmentView.as_view()),
 # Assign Batch with staff mapping
 path("admin/staff/assign-batch/",AssignStaffToBatchView.as_view(),name="assign-staff-batch"),
 
+#Get All the batches
+path("batches/", BatchListView.as_view(), name="batch-list"),
+
 
 
 ]

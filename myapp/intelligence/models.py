@@ -15,6 +15,21 @@ class CustomUser(AbstractUser):
     def __str__(self):
         return self.username
 
+class Batch(models.Model):
+
+    batch_name = models.CharField(max_length=100)  # Example: "2024-2028"
+    batch_code = models.CharField(max_length=20, unique=True)  # Example: B2024
+    start_year = models.IntegerField()
+    end_year = models.IntegerField()
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "batches"
+
+    def __str__(self):
+        return self.batch_name
+
 
 #Department table
 class Department(models.Model):
@@ -72,7 +87,11 @@ class Student(models.Model):
         related_name="students"
     )
 
-    batch = models.IntegerField()
+    batch = models.ForeignKey(
+        Batch,
+        on_delete=models.CASCADE,
+        related_name="staff_assignments"
+    )
 
     class Meta:
         db_table = "students"
@@ -94,7 +113,11 @@ class BatchStaffMapping(models.Model):
         on_delete=models.CASCADE
     )
 
-    batch = models.IntegerField()
+    batch = models.ForeignKey(
+        Batch,
+        on_delete=models.CASCADE,
+        related_name="staff_mappings"
+    )
 
     class Meta:
         db_table = "batch_staff_mapping"
@@ -193,8 +216,13 @@ class StudentExam(models.Model):
         Department,
         on_delete=models.CASCADE
     )
+    file_url = models.URLField(null=True,max_length=500,blank=True)  #Co->qn mapping excel
 
-    batch = models.IntegerField()
+    batch = models.ForeignKey(
+        Batch,
+        on_delete=models.CASCADE,
+        related_name="exams"
+    )
 
     semester = models.IntegerField()
 
@@ -245,3 +273,4 @@ class StudentMarks(models.Model):
 
     def __str__(self):
         return f"{self.student} - {self.co.co_id}"
+
