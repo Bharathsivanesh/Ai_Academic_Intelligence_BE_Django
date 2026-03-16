@@ -131,7 +131,7 @@ class Subject(models.Model):
 
     subject_name = models.CharField(max_length=150)
 
-    subject_code = models.CharField(max_length=20, unique=True)
+    subject_code = models.CharField(max_length=20)
 
     department = models.ForeignKey(
         Department,

@@ -29,7 +29,10 @@ path("admin/staff/assign-batch/",AssignStaffToBatchView.as_view(),name="assign-s
 
 #Get All the batches
 path("batches/", BatchListView.as_view(), name="batch-list"),
+#Get Subject basodn on department id
+path("departments/<int:department_id>/subjects/",SubjectByDepartmentView.as_view(),name="subjects-by-department"),
 
-
+#Add Exam admin
+path("admin/create-exam/", AdminCreateExamView.as_view(), name="create-exam"),
 
 ]
