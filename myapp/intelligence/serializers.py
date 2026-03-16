@@ -155,3 +155,23 @@ class BatchSerializer(serializers.ModelSerializer):
     class Meta:
         model = Batch
         fields = "__all__"
+
+
+class SubjectSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Subject
+        fields = ["id", "subject_name", "subject_code"]
+
+class StudentExamCreateSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = StudentExam
+        fields = [
+            "exam_type",
+            "subject",
+            "department",
+            "batch",
+            "semester",
+            "exam_date",
+            "file_url"
+        ]

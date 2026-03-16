@@ -8,7 +8,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from .permissions import IsAdminUserCustom
 from .models import *
 from .serializers import UserSerializer, MyTokenObtainPairSerializer, StaffCreateSerializer, StaffListSerializer, \
-    DepartmentSerializer, BatchStaffMappingSerializer, BatchSerializer
+    DepartmentSerializer, BatchStaffMappingSerializer, BatchSerializer, SubjectSerializer, StudentExamCreateSerializer
 
 
 class RegisterView(generics.CreateAPIView):
@@ -103,3 +103,16 @@ class BatchListView(generics.ListAPIView):
 
     queryset = Batch.objects.all()
     serializer_class = BatchSerializer
+
+class SubjectByDepartmentView(generics.ListAPIView):
+    serializer_class = SubjectSerializer
+
+    def get_queryset(self):
+        department_id = self.kwargs["department_id"]
+        return Subject.objects.filter(department_id=department_id)
+
+class AdminCreateExamView(generics.CreateAPIView):
+
+    queryset = StudentExam.objects.all()
+    serializer_class = StudentExamCreateSerializer
+    permission_classes = [IsAdminUserCustom]
