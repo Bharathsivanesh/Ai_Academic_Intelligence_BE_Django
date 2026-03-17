@@ -8,7 +8,8 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from .permissions import IsAdminUserCustom
 from .models import *
 from .serializers import UserSerializer, MyTokenObtainPairSerializer, StaffCreateSerializer, StaffListSerializer, \
-    DepartmentSerializer, BatchStaffMappingSerializer, BatchSerializer, SubjectSerializer, StudentExamCreateSerializer
+    DepartmentSerializer, BatchStaffMappingSerializer, BatchSerializer, SubjectSerializer, StudentExamCreateSerializer, \
+    StudentCreateSerializer, StudentListSerializer
 
 
 class RegisterView(generics.CreateAPIView):
@@ -116,3 +117,61 @@ class AdminCreateExamView(generics.CreateAPIView):
     queryset = StudentExam.objects.all()
     serializer_class = StudentExamCreateSerializer
     permission_classes = [IsAdminUserCustom]
+
+class AdminDashboardStatsView(APIView):
+
+    permission_classes = [IsAdminUserCustom]  # or IsAdminUserCustom
+
+    def get(self, request):
+
+        total_staff = Staff.objects.count()
+
+        total_students = Student.objects.count()
+
+        total_subjects = Subject.objects.count()
+
+        data = {
+            "total_staff": total_staff,
+            "total_students": total_students,
+            "total_subjects": total_subjects
+        }
+
+        return Response(data)
+
+
+class StaffCreateStudentView(generics.CreateAPIView):
+
+    queryset = Student.objects.all()
+    serializer_class = StudentCreateSerializer
+    permission_classes = [IsAdminUserCustom]
+
+class AdminStudentListView(generics.ListAPIView):
+    queryset = Student.objects.select_related("user", "department", "batch")
+    serializer_class = StudentListSerializer
+    permission_classes = [IsAdminUserCustom]
+
+class AdminStudentDetailView(generics.RetrieveAPIView):
+    queryset = Student.objects.select_related("user", "department", "batch")
+    serializer_class = StudentListSerializer
+    permission_classes = [IsAdminUserCustom]
+
+class AdminStudentUpdateView(generics.UpdateAPIView):
+    queryset = Student.objects.all()
+    serializer_class = StudentCreateSerializer
+    permission_classes = [IsAdminUserCustom]
+
+class AdminStudentDeleteView(generics.DestroyAPIView):
+    queryset = Student.objects.all()
+    permission_classes = [IsAdminUserCustom]
+
+    def destroy(self, request, *args, **kwargs):
+        student = self.get_object()
+        user = student.user
+
+        student.delete()
+        user.delete()
+
+        return Response(
+            {"message": "Student and user deleted successfully"},
+            status=status.HTTP_200_OK
+        )
