@@ -175,3 +175,65 @@ class StudentExamCreateSerializer(serializers.ModelSerializer):
             "exam_date",
             "file_url"
         ]
+
+
+class StudentCreateSerializer(serializers.ModelSerializer):
+
+    username = serializers.CharField(write_only=True)
+    email = serializers.EmailField(write_only=True)
+    password = serializers.CharField(write_only=True)
+
+    class Meta:
+        model = Student
+        fields = [
+            "id",
+            "username",
+            "email",
+            "password",
+            "student_name",
+            "department",
+            "batch"
+        ]
+
+    def validate_username(self, value):
+
+        if CustomUser.objects.filter(username=value).exists():
+            raise serializers.ValidationError("Username already exists")
+
+        return value
+
+    def create(self, validated_data):
+
+        username = validated_data.pop("username")
+        email = validated_data.pop("email")
+        password = validated_data.pop("password")
+
+        user = CustomUser.objects.create_user(
+            username=username,
+            email=email,
+            password=password,
+            role="student"
+        )
+
+        student = Student.objects.create(
+            user=user,
+            **validated_data
+        )
+
+        return student
+
+class StudentListSerializer(serializers.ModelSerializer):
+
+    email = serializers.CharField(source="user.email")
+    username = serializers.CharField(source="user.username")
+
+    class Meta:
+        model = Student
+        fields = [
+            "id",
+            "student_name",
+            "username",
+            "email",
+            "department",
+            "batch"
+        ]

@@ -35,4 +35,17 @@ path("departments/<int:department_id>/subjects/",SubjectByDepartmentView.as_view
 #Add Exam admin
 path("admin/create-exam/", AdminCreateExamView.as_view(), name="create-exam"),
 
+#Admin overview
+path("admin/dashboard-stats/", AdminDashboardStatsView.as_view(), name="dashboard-stats"),
+
+#--------------------------------------------------------------------------------------------------------------------------
+
+#Staff Protected Routes
+# path("admin/staff/", AdminStaffListView.as_view()),
+path("admin/student/create/", StaffCreateStudentView.as_view()),
+path("admin/students/", AdminStudentListView.as_view()),
+path("admin/students/<int:pk>/", AdminStudentDetailView.as_view()),
+path("admin/students/<int:pk>/update/", AdminStudentUpdateView.as_view()),
+path("admin/students/<int:pk>/delete/", AdminStudentDeleteView.as_view()),
+
 ]
