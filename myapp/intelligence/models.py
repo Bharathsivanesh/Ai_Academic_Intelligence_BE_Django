@@ -173,7 +173,7 @@ class Topic(models.Model):
 class COTopicMapping(models.Model):
 
     co_id = models.CharField(max_length=20)  #Many topics can share same CO
-
+    subject = models.ForeignKey(Subject, on_delete=models.CASCADE,null=True)
     topic = models.ForeignKey(
         Topic,
         on_delete=models.CASCADE,
