@@ -1,4 +1,5 @@
 from django.db.models import Prefetch
+from django.db.models.aggregates import Sum
 from rest_framework import generics, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -10,7 +11,7 @@ from .models import *
 from .serializers import UserSerializer, MyTokenObtainPairSerializer, StaffCreateSerializer, StaffListSerializer, \
     DepartmentSerializer, BatchStaffMappingSerializer, BatchSerializer, SubjectSerializer, StudentExamCreateSerializer, \
     StudentCreateSerializer, StudentListSerializer
-
+from django.db.models import Avg, Q
 
 class RegisterView(generics.CreateAPIView):
     queryset=CustomUser.objects.all()
@@ -175,3 +176,102 @@ class AdminStudentDeleteView(generics.DestroyAPIView):
             {"message": "Student and user deleted successfully"},
             status=status.HTTP_200_OK
         )
+
+
+class StaffDashboardAnalyticsView(APIView):
+
+    # permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        user = request.user
+
+        # ✅ Step 1: Check staff
+        if not hasattr(user, "staff_profile"):
+            return Response({"error": "Not a staff user"}, status=403)
+
+        staff = user.staff_profile
+
+        # ✅ Step 2: Get mapping
+        mappings = BatchStaffMapping.objects.filter(staff=staff)
+
+        batch_ids = mappings.values_list("batch_id", flat=True)
+        department_ids = mappings.values_list("department_id", flat=True)
+
+        # ✅ Step 3: Base queryset (SECURITY FILTER)
+        queryset = StudentMarks.objects.filter(
+            exam__batch_id__in=batch_ids,
+            exam__department_id__in=department_ids
+        ).select_related("student", "exam", "co")
+
+        # ✅ Step 4: Filters (LEFT → RIGHT)
+        batch_id = request.query_params.get("batch")
+        semester = request.query_params.get("semester")
+        subject_id = request.query_params.get("subject")
+        topic_id = request.query_params.get("topic")
+        exam_type = request.query_params.get("exam_type")
+
+        if batch_id:
+            queryset = queryset.filter(exam__batch_id=batch_id)
+
+        if semester:
+            queryset = queryset.filter(exam__semester=semester)
+
+        if subject_id:
+            queryset = queryset.filter(exam__subject_id=subject_id)
+
+        if topic_id:
+            queryset = queryset.filter(co__topic_id=topic_id)
+
+        if exam_type:
+            queryset = queryset.filter(exam__exam_type=exam_type)
+
+        # ✅ Step 5: Dynamic grouping
+        group_fields = ["student__id", "student__student_name"]
+
+        # 👉 Only group by exam if explicitly filtering by exam_type
+        if exam_type:
+            group_fields.append("exam__exam_type")
+
+        student_data = queryset.values(*group_fields).annotate(
+            total_obtained=Sum("obtained_marks"),
+            total_max=Sum("max_marks")
+        )
+
+        # ✅ Step 6: Convert to percentage
+        high_performers = []
+        low_performers = []
+
+        for s in student_data:
+            total_obtained = s["total_obtained"] or 0
+            total_max = s["total_max"] or 1  # avoid division error
+
+            percentage = (total_obtained / total_max) * 100
+
+            data = {
+                "student_id": s["student__id"],
+                "name": s["student__student_name"],
+                "percentage": round(percentage, 2)
+            }
+
+            # optional: include exam_type if present
+            if "exam__exam_type" in s:
+                data["exam_type"] = s["exam__exam_type"]
+
+            if percentage >= 65:
+                high_performers.append(data)
+            elif percentage <=64:
+                low_performers.append(data)
+
+        # ✅ Step 7: Sort
+        high_performers = sorted(high_performers, key=lambda x: -x["percentage"])
+        low_performers = sorted(low_performers, key=lambda x: x["percentage"])
+
+        # ✅ Step 8: Total unique students
+        total_students = queryset.values("student").distinct().count()
+
+        return Response({
+            "total_students": total_students,
+            "high_performers": high_performers[:10],
+            "underperformers": low_performers[:10]
+        })
