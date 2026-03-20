@@ -275,3 +275,143 @@ class StaffDashboardAnalyticsView(APIView):
             "high_performers": high_performers[:10],
             "underperformers": low_performers[:10]
         })
+
+
+class StaffDashboardOverview(APIView):
+
+    # permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        user = request.user
+
+        # ✅ Staff check
+        if not hasattr(user, "staff_profile"):
+            return Response({"error": "Not staff"}, status=403)
+
+        staff = user.staff_profile
+
+        # ✅ Mapping restriction
+        mappings = BatchStaffMapping.objects.filter(staff=staff)
+        batch_ids = mappings.values_list("batch_id", flat=True)
+        dept_ids = mappings.values_list("department_id", flat=True)
+
+        # ✅ Input (ONLY batch)
+        batch_id = request.query_params.get("batch")
+
+        if not batch_id:
+            return Response({"error": "Batch is required"}, status=400)
+
+        if int(batch_id) not in batch_ids:
+            return Response({"error": "Unauthorized batch"}, status=403)
+
+        # ✅ Base queryset
+        queryset = StudentMarks.objects.filter(
+            exam__batch_id=batch_id,
+            exam__department_id__in=dept_ids
+        )
+
+        # =========================
+        # 🎯 1. STUDENT PERFORMANCE
+        # =========================
+        student_qs = queryset.values("student").annotate(
+            total_obtained=Sum("obtained_marks"),
+            total_max=Sum("max_marks")
+        )
+
+        total_students = student_qs.count()
+
+        percentages = []
+        pass_count = 0
+        risk_count = 0
+
+        for s in student_qs:
+            percent = (s["total_obtained"] / s["total_max"]) * 100
+            percentages.append(percent)
+
+            if percent >= 60:
+                pass_count += 1
+            else:
+                risk_count += 1
+
+        overall_performance = sum(percentages) / total_students if total_students else 0
+        pass_percentage = (pass_count / total_students * 100) if total_students else 0
+
+        # =========================
+        # 📊 2. TREND (ORDERED)
+        # =========================
+        trend_qs = queryset.values(
+            "exam__semester",
+            "exam__exam_type"
+        ).annotate(
+            total_obtained=Sum("obtained_marks"),
+            total_max=Sum("max_marks")
+        )
+
+        # 🎯 Custom order
+        exam_order = {
+            "IAT1": 1,
+            "IAT2": 2,
+            "SEM": 3
+        }
+
+        trend_list = []
+
+        for t in trend_qs:
+            percent = (t["total_obtained"] / t["total_max"]) * 100
+
+            trend_list.append({
+                "semester": t["exam__semester"],
+                "exam_type": t["exam__exam_type"],
+                "order": exam_order.get(t["exam__exam_type"], 99),
+                "value": round(percent, 2)
+            })
+
+        # 🔥 SORT: semester first, then exam type
+        trend_list = sorted(
+            trend_list,
+            key=lambda x: (x["semester"], x["order"])
+        )
+
+        # 🔥 Final format for UI
+        trend = [
+            {
+                "label": f"{t['exam_type']} (Sem {t['semester']})",
+                "value": t["value"]
+            }
+            for t in trend_list
+        ]
+
+        # =========================
+        # 📊 3. SUBJECT PROFICIENCY
+        # =========================
+        subject_qs = queryset.values(
+            "exam__subject__subject_name"
+        ).annotate(
+            total_obtained=Sum("obtained_marks"),
+            total_max=Sum("max_marks")
+        )
+
+        subjects = []
+
+        for s in subject_qs:
+            percent = (s["total_obtained"] / s["total_max"]) * 100
+
+            subjects.append({
+                "subject": s["exam__subject__subject_name"],
+                "percentage": round(percent, 2)
+            })
+
+        # =========================
+        # 🚀 FINAL RESPONSE
+        # =========================
+        return Response({
+            "summary": {
+                "total_students": total_students,
+                "overall_performance": round(overall_performance, 2),
+                "pass_percentage": round(pass_percentage, 2),
+                "students_at_risk": risk_count
+            },
+            "trend": trend,
+            "subjects": subjects
+        })

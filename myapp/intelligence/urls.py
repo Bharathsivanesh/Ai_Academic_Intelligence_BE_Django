@@ -47,6 +47,7 @@ path("admin/students/", AdminStudentListView.as_view()),
 path("admin/students/<int:pk>/", AdminStudentDetailView.as_view()),
 path("admin/students/<int:pk>/update/", AdminStudentUpdateView.as_view()),
 path("admin/students/<int:pk>/delete/", AdminStudentDeleteView.as_view()),
-
-    path("staff-dashboard/", StaffDashboardAnalyticsView.as_view(), name="staff-dashboard"),
+#staff
+path("staff/dashboard-overview/", StaffDashboardOverview.as_view(), name="staff-dashboard-overview"),
+path("staff-dashboard/", StaffDashboardAnalyticsView.as_view(), name="staff-dashboard"),
 ]
