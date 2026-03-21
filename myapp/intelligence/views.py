@@ -613,3 +613,173 @@ class TopicAnalyticsView(APIView):
             "total_students": total_students,
             "topic_distribution": topic_distribution
         })
+
+
+class StudentDashboardView(APIView):
+
+
+    def get(self, request):
+
+        user = request.user
+
+        # -----------------------------
+        # Validate student
+        # -----------------------------
+        if user.role != "student":
+            return Response({"error": "Access denied"}, status=403)
+
+        student = getattr(user, "student_profile", None)
+
+        if not student:
+            return Response({"error": "Student profile not found"}, status=404)
+
+        # -----------------------------
+        # 1. Get latest semester
+        # -----------------------------
+        latest_semester = StudentExam.objects.filter(
+            batch=student.batch,
+            department=student.department
+        ).order_by("-semester").values_list("semester", flat=True).first()
+
+        if not latest_semester:
+            return Response({"error": "No exam data available"}, status=404)
+
+        # -----------------------------
+        # 2. Prefer SEM exam
+        # -----------------------------
+        latest_sem_exam = StudentExam.objects.filter(
+            batch=student.batch,
+            department=student.department,
+            semester=latest_semester,
+            exam_type="SEM"
+        ).order_by("-exam_date").first()
+
+        if latest_sem_exam:
+            label_exam = latest_sem_exam
+        else:
+            label_exam = StudentExam.objects.filter(
+                batch=student.batch,
+                department=student.department,
+                semester=latest_semester
+            ).order_by("-exam_date").first()
+
+        # -----------------------------
+        # 3. Filter marks till latest exam
+        # -----------------------------
+        marks = StudentMarks.objects.filter(
+            student=student,
+            exam__semester__lte=label_exam.semester,
+            exam__exam_date__lte=label_exam.exam_date
+        )
+
+        # -----------------------------
+        # 4. Overall percentage
+        # -----------------------------
+        total_obtained = marks.aggregate(total=Sum("obtained_marks"))["total"] or 0
+        total_max = marks.aggregate(total=Sum("max_marks"))["total"] or 1
+
+        overall_percentage = round((total_obtained / total_max) * 100, 2)
+
+        # Grade & Risk
+        if overall_percentage >= 85:
+            grade = "A+"
+            risk = "Low"
+        elif overall_percentage >= 70:
+            grade = "A"
+            risk = "Medium"
+        else:
+            grade = "B"
+            risk = "High"
+
+        # -----------------------------
+        # 5. Total subjects
+        # -----------------------------
+        total_subjects = Subject.objects.filter(
+            department=student.department
+        ).count()
+
+        # -----------------------------
+        # 6. Subject-wise performance
+        # -----------------------------
+        subjects_data = []
+
+        subjects = Subject.objects.filter(department=student.department)
+
+        for subject in subjects:
+            subject_marks = marks.filter(exam__subject=subject)
+
+            sub_total = subject_marks.aggregate(total=Sum("obtained_marks"))["total"] or 0
+            sub_max = subject_marks.aggregate(total=Sum("max_marks"))["total"] or 1
+
+            percentage = round((sub_total / sub_max) * 100, 2)
+
+            subjects_data.append({
+                "subject_name": subject.subject_name,
+                "subject_code": subject.subject_code,
+                "percentage": percentage
+            })
+
+        # -----------------------------
+        # 7. Semester trend
+        # -----------------------------
+        trend = []
+
+        semesters = marks.values_list("exam__semester", flat=True).distinct()
+
+        for sem in sorted(semesters):
+            sem_marks = marks.filter(exam__semester=sem)
+
+            sem_total = sem_marks.aggregate(total=Sum("obtained_marks"))["total"] or 0
+            sem_max = sem_marks.aggregate(total=Sum("max_marks"))["total"] or 1
+
+            sem_percentage = round((sem_total / sem_max) * 100, 2)
+
+            trend.append({
+                "semester": sem,
+                "percentage": sem_percentage
+            })
+
+        # -----------------------------
+        # 8. Improvement + status
+        # -----------------------------
+        improvement = 0
+        trend_status = "same"
+
+        if len(trend) >= 2:
+            trend_sorted = sorted(trend, key=lambda x: x["semester"])
+
+            last_sem = trend_sorted[-1]["percentage"]
+            prev_sem = trend_sorted[-2]["percentage"]
+
+            improvement = round(last_sem - prev_sem, 2)
+
+            if improvement > 0:
+                trend_status = "up"
+            elif improvement < 0:
+                trend_status = "down"
+
+        # -----------------------------
+        # 9. Data scope label
+        # -----------------------------
+        scope_label = f"Till Semester {label_exam.semester} ({label_exam.exam_type})"
+
+        # -----------------------------
+        # FINAL RESPONSE
+        # -----------------------------
+        return Response({
+            "overall": {
+                "percentage": overall_percentage,
+                "grade": grade,
+                "risk_level": risk,
+                "total_subjects": total_subjects
+            },
+            "subjects": subjects_data,
+            "trend": trend,
+            "improvement": improvement,
+            "trend_status": trend_status,
+            "data_scope": {
+                "label": scope_label,
+                "semester": label_exam.semester,
+                "exam_type": label_exam.exam_type
+            }
+        })
