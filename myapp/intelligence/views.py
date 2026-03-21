@@ -415,3 +415,201 @@ class StaffDashboardOverview(APIView):
             "trend": trend,
             "subjects": subjects
         })
+
+class TopicProficiencyDistributionView(APIView):
+
+    def get(self, request):
+
+        batch_id = request.query_params.get("batch")
+        subject_id = request.query_params.get("subject")
+
+        if not batch_id or not subject_id:
+            return Response({"error": "batch and subject are required"}, status=400)
+
+        user = request.user
+
+        # ✅ STAFF VALIDATION
+        if not hasattr(user, "staff_profile"):
+            return Response({"error": "Not a staff user"}, status=403)
+
+        staff = user.staff_profile
+
+        # ✅ GET ALLOWED MAPPINGS
+        mappings = BatchStaffMapping.objects.filter(staff=staff)
+        batch_ids = mappings.values_list("batch_id", flat=True)
+        dept_ids = mappings.values_list("department_id", flat=True)
+
+        # ✅ SECURITY FILTER
+        queryset = StudentMarks.objects.filter(
+            exam__batch_id__in=batch_ids,
+            exam__department_id__in=dept_ids,
+            exam__batch_id=batch_id,
+            exam__subject_id=subject_id
+        )
+
+        # ✅ AGGREGATE PER STUDENT PER TOPIC
+        topic_data = queryset.values(
+            "co__topic__id",
+            "co__topic__topic_name",
+            "student__id"
+        ).annotate(
+            total_obtained=Sum("obtained_marks"),
+            total_max=Sum("max_marks")
+        )
+
+        # ✅ DISTRIBUTION STRUCTURE
+        topic_distribution = {}
+
+        for row in topic_data:
+            topic_id = row["co__topic__id"]
+            topic_name = row["co__topic__topic_name"]
+
+            if topic_id not in topic_distribution:
+                topic_distribution[topic_id] = {
+                    "topic": topic_name,
+                    "exceeding": 0,
+                    "meeting": 0,
+                    "developing": 0,
+                    "below": 0
+                }
+
+            obtained = row["total_obtained"] or 0
+            max_marks = row["total_max"] or 1
+
+            percentage = (obtained / max_marks) * 100
+
+            # ✅ CATEGORY
+            if percentage >= 75:
+                topic_distribution[topic_id]["exceeding"] += 1
+            elif percentage >= 50:
+                topic_distribution[topic_id]["meeting"] += 1
+            elif percentage >= 35:
+                topic_distribution[topic_id]["developing"] += 1
+            else:
+                topic_distribution[topic_id]["below"] += 1
+
+        return Response({
+            "topics": list(topic_distribution.values())
+        })
+
+
+class TopicAnalyticsView(APIView):
+
+    def get(self, request):
+
+        user = request.user
+
+        # ✅ 1. Staff validation
+        if not hasattr(user, "staff_profile"):
+            return Response({"error": "Not a staff user"}, status=403)
+
+        staff = user.staff_profile
+
+        # ✅ 2. Staff mappings
+        mappings = BatchStaffMapping.objects.filter(staff=staff)
+
+        batch_ids = list(mappings.values_list("batch_id", flat=True))
+        dept_ids = list(mappings.values_list("department_id", flat=True))
+
+        # ✅ 3. Params
+        batch_id = request.query_params.get("batch")
+        subject_id = request.query_params.get("subject")
+
+        if not batch_id or not subject_id:
+            return Response(
+                {"error": "batch and subject are required"},
+                status=400
+            )
+
+        # ✅ 4. Validate subject
+        if not Subject.objects.filter(id=subject_id).exists():
+            return Response({"error": "Invalid subject id"}, status=400)
+
+        # ✅ 5. Base queryset
+        queryset = StudentMarks.objects.filter(
+            exam__batch_id__in=batch_ids,
+            exam__department_id__in=dept_ids,
+            exam__batch_id=batch_id,
+            exam__subject_id=subject_id,
+            co__topic__subject_id=subject_id
+        ).select_related(
+            "student",
+            "co__topic",
+            "exam"
+        )
+
+        if not queryset.exists():
+            return Response(
+                {"error": "No marks found"},
+                status=400
+            )
+
+        # ✅ 6. Student + Topic aggregation
+        student_topic_data = queryset.values(
+            "student_id",
+            "co__topic__id",
+            "co__topic__topic_name"
+        ).annotate(
+            total_obtained=Sum("obtained_marks"),
+            total_max=Sum("max_marks")
+        )
+
+        # ✅ 7. Build distribution
+        topic_map = {}
+
+        for row in student_topic_data:
+            topic_id = row["co__topic__id"]
+            topic_name = row["co__topic__topic_name"]
+
+            percent = 0
+            if row["total_max"] > 0:
+                percent = (row["total_obtained"] / row["total_max"]) * 100
+
+            # classify level
+            if percent >= 75:
+                level = "Exceeding"
+            elif percent >= 60:
+                level = "Meeting"
+            elif percent >= 40:
+                level = "Developing"
+            else:
+                level = "Below"
+
+            if topic_id not in topic_map:
+                topic_map[topic_id] = {
+                    "topic": topic_name,
+                    "Exceeding": 0,
+                    "Meeting": 0,
+                    "Developing": 0,
+                    "Below": 0,
+                }
+
+            topic_map[topic_id][level] += 1
+
+        # ✅ 8. Convert to percentage (ONLY topics with marks)
+        topic_distribution = []
+
+        for data in topic_map.values():
+            total = (
+                data["Exceeding"] +
+                data["Meeting"] +
+                data["Developing"] +
+                data["Below"]
+            )
+
+            topic_distribution.append({
+                "topic": data["topic"],
+                "Exceeding": round((data["Exceeding"] / total) * 100, 2),
+                "Meeting": round((data["Meeting"] / total) * 100, 2),
+                "Developing": round((data["Developing"] / total) * 100, 2),
+                "Below": round((data["Below"] / total) * 100, 2),
+            })
+
+        # ✅ 9. Total students
+        total_students = queryset.values("student_id").distinct().count()
+
+        # ✅ 10. Response
+        return Response({
+            "total_students": total_students,
+            "topic_distribution": topic_distribution
+        })
