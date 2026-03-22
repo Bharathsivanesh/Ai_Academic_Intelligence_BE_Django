@@ -51,4 +51,14 @@ path("admin/students/<int:pk>/delete/", AdminStudentDeleteView.as_view()),
 path("staff/dashboard-overview/", StaffDashboardOverview.as_view(), name="staff-dashboard-overview"),
 path("staff-dashboard/", StaffDashboardAnalyticsView.as_view(), name="staff-dashboard"),
 path("staff/topic-distribution/", TopicAnalyticsView.as_view()),
+
+#studnet routes
+path("student/dashboard/", StudentDashboardView.as_view(), name="student-dashboard"),
+#studnet study plan
+path("study-plan/create/", CreateStudyPlanView.as_view()),
+path("study-plans/", StudentStudyPlanListView.as_view()),
+path("study-plan/<int:pk>/", StudyPlanDetailView.as_view()),
+path("plan/day-complete/<int:pk>/", MarkDayCompleteView.as_view()),
+
+path("subject-intelligence/", SubjectIntelligenceView.as_view()),
 ]
