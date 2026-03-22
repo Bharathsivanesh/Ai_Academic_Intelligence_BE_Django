@@ -237,3 +237,28 @@ class StudentListSerializer(serializers.ModelSerializer):
             "department",
             "batch"
         ]
+
+class StudyPlanDetailSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StudyPlanDetail
+        fields = "__all__"
+        read_only_fields = ["plan"]  # ✅ cleaner
+
+class StudyPlanSerializer(serializers.ModelSerializer):
+
+    details = StudyPlanDetailSerializer(many=True)
+
+    class Meta:
+        model = StudyPlan
+        fields = "__all__"
+        read_only_fields = ["student"]  # ✅ cleaner
+
+    def create(self, validated_data):
+        details_data = validated_data.pop("details")
+
+        plan = StudyPlan.objects.create(**validated_data)
+
+        for day in details_data:
+            StudyPlanDetail.objects.create(plan=plan, **day)
+
+        return plan
