@@ -10,8 +10,9 @@ from .permissions import IsAdminUserCustom
 from .models import *
 from .serializers import UserSerializer, MyTokenObtainPairSerializer, StaffCreateSerializer, StaffListSerializer, \
     DepartmentSerializer, BatchStaffMappingSerializer, BatchSerializer, SubjectSerializer, StudentExamCreateSerializer, \
-    StudentCreateSerializer, StudentListSerializer
+    StudentCreateSerializer, StudentListSerializer, StudyPlanSerializer
 from django.db.models import Avg, Q
+from collections import defaultdict
 
 class RegisterView(generics.CreateAPIView):
     queryset=CustomUser.objects.all()
@@ -616,14 +617,14 @@ class TopicAnalyticsView(APIView):
 
 
 class StudentDashboardView(APIView):
-
+    # permission_classes = [IsAuthenticated]
 
     def get(self, request):
 
         user = request.user
 
         # -----------------------------
-        # Validate student
+        # 1. Validate student
         # -----------------------------
         if user.role != "student":
             return Response({"error": "Access denied"}, status=403)
@@ -634,37 +635,19 @@ class StudentDashboardView(APIView):
             return Response({"error": "Student profile not found"}, status=404)
 
         # -----------------------------
-        # 1. Get latest semester
+        # 2. Get latest exam FROM MARKS (FIXED 🔥)
         # -----------------------------
-        latest_semester = StudentExam.objects.filter(
-            batch=student.batch,
-            department=student.department
-        ).order_by("-semester").values_list("semester", flat=True).first()
+        latest_mark = StudentMarks.objects.filter(
+            student=student
+        ).select_related("exam").order_by("-exam__exam_date").first()
 
-        if not latest_semester:
-            return Response({"error": "No exam data available"}, status=404)
+        if not latest_mark:
+            return Response({"error": "No marks data available"}, status=404)
 
-        # -----------------------------
-        # 2. Prefer SEM exam
-        # -----------------------------
-        latest_sem_exam = StudentExam.objects.filter(
-            batch=student.batch,
-            department=student.department,
-            semester=latest_semester,
-            exam_type="SEM"
-        ).order_by("-exam_date").first()
-
-        if latest_sem_exam:
-            label_exam = latest_sem_exam
-        else:
-            label_exam = StudentExam.objects.filter(
-                batch=student.batch,
-                department=student.department,
-                semester=latest_semester
-            ).order_by("-exam_date").first()
+        label_exam = latest_mark.exam
 
         # -----------------------------
-        # 3. Filter marks till latest exam
+        # 3. Base marks (till latest exam)
         # -----------------------------
         marks = StudentMarks.objects.filter(
             student=student,
@@ -673,7 +656,19 @@ class StudentDashboardView(APIView):
         )
 
         # -----------------------------
-        # 4. Overall percentage
+        # 4. Apply Filters
+        # -----------------------------
+        semester = request.query_params.get("semester")
+        exam_type = request.query_params.get("exam_type")
+
+        if semester:
+            marks = marks.filter(exam__semester=semester)
+
+        if exam_type:
+            marks = marks.filter(exam__exam_type=exam_type)
+
+        # -----------------------------
+        # 5. Overall percentage
         # -----------------------------
         total_obtained = marks.aggregate(total=Sum("obtained_marks"))["total"] or 0
         total_max = marks.aggregate(total=Sum("max_marks"))["total"] or 1
@@ -692,14 +687,14 @@ class StudentDashboardView(APIView):
             risk = "High"
 
         # -----------------------------
-        # 5. Total subjects
+        # 6. Total subjects
         # -----------------------------
         total_subjects = Subject.objects.filter(
             department=student.department
         ).count()
 
         # -----------------------------
-        # 6. Subject-wise performance
+        # 7. Subject-wise performance
         # -----------------------------
         subjects_data = []
 
@@ -720,7 +715,7 @@ class StudentDashboardView(APIView):
             })
 
         # -----------------------------
-        # 7. Semester trend
+        # 8. Semester trend
         # -----------------------------
         trend = []
 
@@ -740,7 +735,7 @@ class StudentDashboardView(APIView):
             })
 
         # -----------------------------
-        # 8. Improvement + status
+        # 9. Improvement + trend status
         # -----------------------------
         improvement = 0
         trend_status = "same"
@@ -759,7 +754,7 @@ class StudentDashboardView(APIView):
                 trend_status = "down"
 
         # -----------------------------
-        # 9. Data scope label
+        # 10. Data scope label (FIXED 🔥)
         # -----------------------------
         scope_label = f"Till Semester {label_exam.semester} ({label_exam.exam_type})"
 
@@ -781,5 +776,167 @@ class StudentDashboardView(APIView):
                 "label": scope_label,
                 "semester": label_exam.semester,
                 "exam_type": label_exam.exam_type
+            },
+            "filters": {
+                "semester": semester,
+                "exam_type": exam_type
             }
+        })
+
+
+class CreateStudyPlanView(generics.CreateAPIView):
+    queryset = StudyPlan.objects.all()
+    serializer_class = StudyPlanSerializer
+    # permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        serializer.save(student=self.request.user)
+
+class StudentStudyPlanListView(generics.ListAPIView):
+    serializer_class = StudyPlanSerializer
+    # permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return StudyPlan.objects.filter(
+            student=self.request.user
+        ).prefetch_related("details")
+
+class StudyPlanDetailView(generics.RetrieveAPIView):
+    queryset = StudyPlan.objects.prefetch_related("details")
+    serializer_class = StudyPlanSerializer
+    # permission_classes = [IsAuthenticated]
+
+
+class MarkDayCompleteView(APIView):
+    # permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+
+        # pk = StudyPlanDetail id
+        try:
+            day = StudyPlanDetail.objects.get(
+                id=pk,
+                plan__student=request.user
+            )
+        except StudyPlanDetail.DoesNotExist:
+            return Response({"error": "Not found"}, status=404)
+
+        # toggle completion
+        day.is_completed = True
+        day.save()
+
+        # 🔥 update overall progress
+        plan = day.plan
+
+        total_days = plan.details.count()
+        completed_days = plan.details.filter(is_completed=True).count()
+
+        progress = (completed_days / total_days) * 100
+        plan.overall_progress = round(progress, 2)
+
+        # mark completed if 100%
+        if progress == 100:
+            plan.status = "completed"
+
+        plan.save()
+
+        return Response({
+            "message": "Day marked complete",
+            "progress": plan.overall_progress
+        })
+
+class SubjectIntelligenceView(APIView):
+
+    def get(self, request):
+
+        subject_id = request.GET.get("subject_id")
+
+        if not subject_id:
+            return Response({"error": "subject_id required"}, status=400)
+
+        exams = StudentExam.objects.filter(subject_id=subject_id)
+
+        marks = StudentMarks.objects.filter(exam__in=exams).select_related(
+            "exam", "co__topic"
+        )
+
+        # -----------------------------
+        # 1. Overall Subject Performance
+        # -----------------------------
+        total_obtained = sum(m.obtained_marks for m in marks)
+        total_max = sum(m.max_marks for m in marks)
+
+        overall_avg = round((total_obtained / total_max) * 100, 2) if total_max else 0
+
+        # difficulty
+        if overall_avg >= 75:
+            difficulty = "Easy"
+        elif overall_avg >= 60:
+            difficulty = "Medium"
+        else:
+            difficulty = "Hard"
+
+        # -----------------------------
+        # 2. Batch-wise Trend
+        # -----------------------------
+        batch_data = defaultdict(lambda: {"obtained": 0, "max": 0})
+
+        for m in marks:
+            batch_name = m.exam.batch.batch_name
+
+            batch_data[batch_name]["obtained"] += m.obtained_marks
+            batch_data[batch_name]["max"] += m.max_marks
+
+        batch_trend = []
+
+        for batch, data in batch_data.items():
+            avg = (data["obtained"] / data["max"]) * 100 if data["max"] else 0
+
+            batch_trend.append({
+                "batch": batch,
+                "percentage": round(avg, 2)
+            })
+
+        # sort by batch (optional)
+        batch_trend = sorted(batch_trend, key=lambda x: x["batch"])
+
+        # -----------------------------
+        # 3. Topic-wise Difficulty
+        # -----------------------------
+        topic_data = defaultdict(lambda: {"obtained": 0, "max": 0})
+
+        for m in marks:
+            topic_name = m.co.topic.topic_name
+
+            topic_data[topic_name]["obtained"] += m.obtained_marks
+            topic_data[topic_name]["max"] += m.max_marks
+
+        topic_analysis = []
+
+        for topic, data in topic_data.items():
+            avg = (data["obtained"] / data["max"]) * 100 if data["max"] else 0
+
+            if avg >= 75:
+                level = "Easy"
+            elif avg >= 60:
+                level = "Medium"
+            else:
+                level = "Hard"
+
+            topic_analysis.append({
+                "topic": topic,
+                "percentage": round(avg, 2),
+                "difficulty": level
+            })
+
+        # -----------------------------
+        # FINAL RESPONSE
+        # -----------------------------
+        return Response({
+            "subject_overview": {
+                "average_score": overall_avg,
+                "difficulty": difficulty
+            },
+            "batch_trend": batch_trend,
+            "topic_analysis": topic_analysis
         })

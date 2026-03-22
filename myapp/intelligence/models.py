@@ -274,3 +274,75 @@ class StudentMarks(models.Model):
     def __str__(self):
         return f"{self.student} - {self.co.co_id}"
 
+
+class StudyPlan(models.Model):
+
+    STATUS_CHOICES = (
+        ("active", "Active"),
+        ("completed", "Completed"),
+    )
+
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="study_plans"
+    )
+
+    subject = models.ForeignKey(
+        "Subject",
+        on_delete=models.CASCADE
+    )
+
+    plan_name = models.CharField(max_length=200)
+
+    time_horizon_days = models.PositiveIntegerField()  # e.g., 7 days
+
+    daily_hours = models.FloatField()
+
+    overall_progress = models.FloatField(default=0)
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="active"
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "study_plan"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return self.plan_name
+
+class StudyPlanDetail(models.Model):
+
+    plan = models.ForeignKey(
+        StudyPlan,
+        on_delete=models.CASCADE,
+        related_name="details"
+    )
+
+    day_number = models.PositiveIntegerField()  # Day 1, Day 2...
+
+    topic_name = models.CharField(max_length=200)
+
+    description = models.TextField(blank=True, null=True)
+
+    # ✅ PDF links (your main idea)
+    video_links_pdf = models.URLField(blank=True, null=True)
+    reference_links_pdf = models.URLField(blank=True, null=True)
+
+    # ✅ progress tracking
+    is_completed = models.BooleanField(default=False)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "study_plan_details"
+        unique_together = ("plan", "day_number")
+        ordering = ["day_number"]
+
+    def __str__(self):
+        return f"{self.plan.plan_name} - Day {self.day_number}"
