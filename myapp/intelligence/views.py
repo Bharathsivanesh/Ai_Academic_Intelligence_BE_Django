@@ -13,6 +13,9 @@ from .serializers import UserSerializer, MyTokenObtainPairSerializer, StaffCreat
     StudentCreateSerializer, StudentListSerializer, StudyPlanSerializer
 from django.db.models import Avg, Q
 from collections import defaultdict
+import pandas as pd
+from django.db import transaction,connection
+from django.db.models import Max
 
 class RegisterView(generics.CreateAPIView):
     queryset=CustomUser.objects.all()
@@ -939,4 +942,106 @@ class SubjectIntelligenceView(APIView):
             },
             "batch_trend": batch_trend,
             "topic_analysis": topic_analysis
+        })
+
+
+class BulkStaffUploadView(APIView):
+
+    def reset_sequence(self):
+        """
+        🔥 Auto-fix PostgreSQL sequence for staff table
+        """
+        from .models import Staff  # adjust import if needed
+
+        max_id = Staff.objects.aggregate(max_id=Max("id"))["max_id"] or 0
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT setval(pg_get_serial_sequence('staff','id'), %s, true);",
+                [max_id]
+            )
+
+    def post(self, request):
+
+        file = request.FILES.get("file")
+
+        if not file:
+            return Response({"error": "Excel file is required"}, status=400)
+
+        try:
+            df = pd.read_excel(file)
+        except Exception:
+            return Response({"error": "Invalid Excel file"}, status=400)
+
+        required_columns = ["username", "email", "password", "staff_name", "department"]
+
+        # ✅ Check columns
+        for col in required_columns:
+            if col not in df.columns:
+                return Response({"error": f"Missing column: {col}"}, status=400)
+
+        errors = []
+        success_count = 0
+
+        # 🔥 FIX SEQUENCE BEFORE INSERT
+        self.reset_sequence()
+
+        with transaction.atomic():
+
+            for index, row in df.iterrows():
+                row_num = index + 2
+
+                username = str(row["username"]).strip()
+                email = str(row["email"]).strip()
+                password = str(row["password"]).strip()
+                staff_name = str(row["staff_name"]).strip()
+                department_id = row["department"]
+
+                # ✅ Validation
+                if not username or not email or not password or not staff_name:
+                    errors.append(f"Row {row_num}: Missing required fields")
+                    continue
+
+                if CustomUser.objects.filter(username=username).exists():
+                    errors.append(f"Row {row_num}: Username already exists")
+                    continue
+
+                if CustomUser.objects.filter(email=email).exists():
+                    errors.append(f"Row {row_num}: Email already exists")
+                    continue
+
+                try:
+                    department = Department.objects.get(id=department_id)
+                except Department.DoesNotExist:
+                    errors.append(f"Row {row_num}: Invalid department ID")
+                    continue
+
+                # ✅ Create user
+                user = CustomUser.objects.create_user(
+                    username=username,
+                    email=email,
+                    password=password,
+                    role="staff"
+                )
+
+                # 🔥 ID auto handled correctly now
+                Staff.objects.create(
+                    user=user,
+                    staff_name=staff_name,
+                    department=department
+                )
+
+                success_count += 1
+
+            # ❌ rollback if errors
+            if errors:
+                transaction.set_rollback(True)
+                return Response({
+                    "status": "failed",
+                    "errors": errors
+                }, status=400)
+
+        return Response({
+            "status": "success",
+            "created": success_count
         })
