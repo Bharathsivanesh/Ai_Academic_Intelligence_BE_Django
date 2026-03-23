@@ -19,6 +19,7 @@ path("admin/staff/create/", AdminCreateStaffView.as_view()),
 path("admin/staff/<int:pk>/", AdminStaffDetailView.as_view()),
 path("admin/staff/<int:pk>/update/", AdminStaffUpdateView.as_view()),
 path("admin/staff/<int:pk>/delete/", AdminStaffDeleteView.as_view()),
+path("admin/staff/bulk-upload/", BulkStaffUploadView.as_view()),
 
 #Departmenets
 path("admin/departments/", AdminDepartmentListView.as_view()),
