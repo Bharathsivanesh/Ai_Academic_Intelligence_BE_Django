@@ -203,7 +203,7 @@ class StudentCreateSerializer(serializers.ModelSerializer):
         return value
 
     def create(self, validated_data):
-
+        print("DATA:", validated_data)
         username = validated_data.pop("username")
         email = validated_data.pop("email")
         password = validated_data.pop("password")
