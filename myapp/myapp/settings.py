@@ -67,8 +67,8 @@ REST_FRAMEWORK = {
 }
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=40),  # Short-lived access token
-    'REFRESH_TOKEN_LIFETIME': timedelta(minutes=50),  # Longer-lived refresh token
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),  # Short-lived access token
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=2),  # Longer-lived refresh token
     'ROTATE_REFRESH_TOKENS': False,  # Optional: Rotate refresh tokens on use
     'BLACKLIST_AFTER_ROTATION': True, # Optional: Blacklist old refresh tokens
     'ALGORITHM': 'HS256',
@@ -112,24 +112,24 @@ WSGI_APPLICATION = 'myapp.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-# DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.postgresql',
-#         'NAME': 'academinintelligence',
-#         'USER': 'postgres',
-#         'PASSWORD': 'Bharath@26',
-#         'HOST':'localhost'
-#
-#     }
-# }
 DATABASES = {
-    'default': dj_database_url.config(
-        default=os.environ.get(
-            'DATABASE_URL',
-            'postgres://postgres:Bharath%4026@localhost:5432/academinintelligence'
-        )
-    )
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'academinintelligence',
+        'USER': 'postgres',
+        'PASSWORD': 'Bharath@26',
+        'HOST':'localhost'
+
+    }
 }
+# DATABASES = {
+#     'default': dj_database_url.config(
+#         default=os.environ.get(
+#             'DATABASE_URL',
+#             'postgres://postgres:Bharath%4026@localhost:5432/academinintelligence'
+#         )
+#     )
+# }
 
 
 # Password validation
