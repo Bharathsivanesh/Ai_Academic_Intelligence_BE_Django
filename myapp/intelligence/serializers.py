@@ -104,6 +104,60 @@ class StaffCreateSerializer(serializers.ModelSerializer):
         return staff
 
 
+
+class StaffUpdateSerializer(serializers.ModelSerializer):
+
+    username = serializers.CharField(required=False)
+    email = serializers.EmailField(required=False)
+    password = serializers.CharField(write_only=True, required=False)
+
+    class Meta:
+        model = Staff
+        fields = [
+            "id",
+            "username",
+            "email",
+            "password",
+            "staff_name",
+            "department"
+        ]
+
+    # ✅ FIX: username validation for update
+    def validate_username(self, value):
+        user = self.instance.user if self.instance else None
+
+        if CustomUser.objects.filter(username=value).exclude(id=user.id if user else None).exists():
+            raise serializers.ValidationError("Username already exists")
+
+        return value
+
+    # ✅ UPDATE LOGIC
+    def update(self, instance, validated_data):
+        user = instance.user
+
+        # --- Update CustomUser ---
+        if "username" in validated_data:
+            user.username = validated_data["username"]
+
+        if "email" in validated_data:
+            user.email = validated_data["email"]
+
+        if "password" in validated_data:
+            user.set_password(validated_data["password"])
+
+        user.save()
+
+        # --- Update Staff ---
+        if "staff_name" in validated_data:
+            instance.staff_name = validated_data["staff_name"]
+
+        if "department" in validated_data:
+            instance.department = validated_data["department"]
+
+        instance.save()
+
+        return instance
+
 class BatchSimpleSerializer(serializers.ModelSerializer):
 
     class Meta:
@@ -176,7 +230,6 @@ class StudentExamCreateSerializer(serializers.ModelSerializer):
             "file_url"
         ]
 
-
 class StudentCreateSerializer(serializers.ModelSerializer):
 
     username = serializers.CharField(write_only=True)
@@ -191,37 +244,113 @@ class StudentCreateSerializer(serializers.ModelSerializer):
             "email",
             "password",
             "student_name",
-            "department",
-            "batch"
+            "batch"   # ❌ removed department
         ]
 
     def validate_username(self, value):
-
         if CustomUser.objects.filter(username=value).exists():
             raise serializers.ValidationError("Username already exists")
+        return value
 
+    def validate_email(self, value):
+        if CustomUser.objects.filter(email=value).exists():
+            raise serializers.ValidationError("Email already exists")
         return value
 
     def create(self, validated_data):
-        print("DATA:", validated_data)
-        username = validated_data.pop("username")
-        email = validated_data.pop("email")
-        password = validated_data.pop("password")
+        request = self.context.get("request")
 
-        user = CustomUser.objects.create_user(
-            username=username,
-            email=email,
-            password=password,
-            role="student"
-        )
+        # ✅ get logged-in staff
+        user = request.user
 
-        student = Student.objects.create(
-            user=user,
-            **validated_data
-        )
+        if not hasattr(user, "staff_profile"):
+            raise serializers.ValidationError("Only staff can create students")
 
-        return student
+        staff = user.staff_profile
 
+        try:
+            username = validated_data.pop("username")
+            email = validated_data.pop("email")
+            password = validated_data.pop("password")
+
+            # ✅ create user
+            user_obj = CustomUser.objects.create_user(
+                username=username,
+                email=email,
+                password=password,
+                role="student"
+            )
+
+            # ✅ AUTO ASSIGN DEPARTMENT FROM STAFF
+            student = Student.objects.create(
+                user=user_obj,
+                department=staff.department,   # 🔥 AUTO SET
+                **validated_data
+            )
+
+            return student
+
+        except Exception as e:
+            raise serializers.ValidationError(str(e))
+
+class StudentUpdateSerializer(serializers.ModelSerializer):
+
+    username = serializers.CharField(required=False)
+    email = serializers.EmailField(required=False)
+    password = serializers.CharField(write_only=True, required=False)
+
+    class Meta:
+        model = Student
+        fields = [
+            "id",
+            "username",
+            "email",
+            "password",
+            "student_name",
+            "batch"
+        ]
+
+    # ✅ Fix username validation (exclude current user)
+    def validate_username(self, value):
+        if self.instance:
+            user = self.instance.user
+            if CustomUser.objects.filter(username=value).exclude(id=user.id).exists():
+                raise serializers.ValidationError("Username already exists")
+        else:
+            if CustomUser.objects.filter(username=value).exists():
+                raise serializers.ValidationError("Username already exists")
+
+        return value
+
+    # ✅ UPDATE LOGIC
+    def update(self, instance, validated_data):
+        user = instance.user
+
+        # --- Update CustomUser ---
+        if "username" in validated_data:
+            user.username = validated_data["username"]
+
+        if "email" in validated_data:
+            user.email = validated_data["email"]
+
+        if "password" in validated_data:
+            user.set_password(validated_data["password"])
+
+        user.save()
+
+        # --- Update Student ---
+        if "student_name" in validated_data:
+            instance.student_name = validated_data["student_name"]
+
+        if "department" in validated_data:
+            instance.department = validated_data["department"]
+
+        if "batch" in validated_data:
+            instance.batch = validated_data["batch"]
+
+        instance.save()
+
+        return instance
 class StudentListSerializer(serializers.ModelSerializer):
 
     email = serializers.CharField(source="user.email")
@@ -262,3 +391,31 @@ class StudyPlanSerializer(serializers.ModelSerializer):
             StudyPlanDetail.objects.create(plan=plan, **day)
 
         return plan
+
+class StudyPlanRequestSerializer(serializers.Serializer):
+    subject = serializers.CharField(required=True)
+    duration = serializers.IntegerField(required=True)
+    dailyHours = serializers.IntegerField(required=True)
+
+
+class SubjectSerializer(serializers.ModelSerializer):
+    department_name = serializers.CharField(
+        source="department.department_name",
+        read_only=True
+    )
+
+    class Meta:
+        model = Subject
+        fields = [
+            "id",
+            "subject_name",
+            "subject_code",
+            "department",
+            "department_name"
+        ]
+
+
+class BatchSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Batch
+        fields = ["id", "batch_name", "batch_code", "start_year", "end_year"]

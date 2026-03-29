@@ -10,12 +10,16 @@ from .permissions import IsAdminUserCustom
 from .models import *
 from .serializers import UserSerializer, MyTokenObtainPairSerializer, StaffCreateSerializer, StaffListSerializer, \
     DepartmentSerializer, BatchStaffMappingSerializer, BatchSerializer, SubjectSerializer, StudentExamCreateSerializer, \
-    StudentCreateSerializer, StudentListSerializer, StudyPlanSerializer
+    StudentCreateSerializer, StudentListSerializer, StudyPlanSerializer, StaffUpdateSerializer, StudentUpdateSerializer, \
+    StudyPlanRequestSerializer
 from django.db.models import Avg, Q
 from collections import defaultdict
+from rest_framework.permissions import AllowAny
 import pandas as pd
 from django.db import transaction,connection
 from django.db.models import Max
+import os
+import requests
 
 class RegisterView(generics.CreateAPIView):
     queryset=CustomUser.objects.all()
@@ -52,7 +56,7 @@ class AdminStaffListView(generics.ListAPIView):
         "user", "department"
     ).prefetch_related(
         Prefetch("batch_assignments", queryset=BatchStaffMapping.objects.select_related("batch"))
-    )
+    ).order_by("id")
 
     serializer_class = StaffListSerializer
     permission_classes = [IsAdminUserCustom]
@@ -64,9 +68,8 @@ class AdminStaffDetailView(generics.RetrieveAPIView):
     permission_classes = [IsAdminUserCustom]
 
 class AdminStaffUpdateView(generics.UpdateAPIView):
-
     queryset = Staff.objects.all()
-    serializer_class = StaffCreateSerializer
+    serializer_class = StaffUpdateSerializer
     permission_classes = [IsAdminUserCustom]
 
 class AdminStaffDeleteView(generics.DestroyAPIView):
@@ -97,7 +100,7 @@ class AdminCreateDepartmentView(generics.CreateAPIView):
 
     queryset = Department.objects.all()
     serializer_class = DepartmentSerializer
-    permission_classes = [IsAdminUserCustom]
+    # permission_classes = [IsAdminUserCustom]
 
 class AssignStaffToBatchView(generics.CreateAPIView):
 
@@ -148,10 +151,12 @@ class StaffCreateStudentView(generics.CreateAPIView):
 
     queryset = Student.objects.all()
     serializer_class = StudentCreateSerializer
-    # permission_classes = [IsAdminUserCustom]
+
+    def get_serializer_context(self):
+        return {"request": self.request}
 
 class AdminStudentListView(generics.ListAPIView):
-    queryset = Student.objects.select_related("user", "department", "batch")
+    queryset = Student.objects.select_related("user", "department", "batch").order_by("-id")
     serializer_class = StudentListSerializer
     # permission_classes = [IsAdminUserCustom]
 
@@ -162,7 +167,7 @@ class AdminStudentDetailView(generics.RetrieveAPIView):
 
 class AdminStudentUpdateView(generics.UpdateAPIView):
     queryset = Student.objects.all()
-    serializer_class = StudentCreateSerializer
+    serializer_class = StudentUpdateSerializer
     # permission_classes = [IsAdminUserCustom]
 
 class AdminStudentDeleteView(generics.DestroyAPIView):
@@ -1062,3 +1067,296 @@ class BulkStaffUploadView(APIView):
             "status": "success",
             "created": success_count
         })
+
+class BulkStudentUploadView(APIView):
+
+    def reset_sequences(self):
+        student_max = Student.objects.aggregate(max_id=Max("id"))["max_id"] or 0
+        user_max = CustomUser.objects.aggregate(max_id=Max("id"))["max_id"] or 0
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT setval(pg_get_serial_sequence('students','id'), %s, true);",
+                [student_max]
+            )
+            cursor.execute(
+                "SELECT setval(pg_get_serial_sequence('intelligence_customuser','id'), %s, true);",
+                [user_max]
+            )
+
+    def post(self, request):
+
+        file = request.FILES.get("file")
+
+        if not file:
+            return Response({"error": "Excel file is required"}, status=400)
+
+        try:
+            df = pd.read_excel(file)
+        except Exception:
+            return Response({"error": "Invalid Excel file"}, status=400)
+
+        required_columns = [
+            "username", "email", "password",
+            "student_name", "department", "batch"
+        ]
+
+        for col in required_columns:
+            if col not in df.columns:
+                return Response({"error": f"Missing column: {col}"}, status=400)
+
+        errors = []
+        success_count = 0
+
+        self.reset_sequences()
+
+        with transaction.atomic():
+
+            for index, row in df.iterrows():
+                row_num = index + 2
+
+                try:
+                    username = str(row["username"]).strip()
+                    email = str(row["email"]).strip()
+                    password = str(row["password"]).strip()
+                    student_name = str(row["student_name"]).strip()
+                    department_id = int(row["department"])
+                    batch_id = int(row["batch"])
+
+                    # ✅ Validation
+                    if not username or not email or not password or not student_name:
+                        errors.append(f"Row {row_num}: Missing required fields")
+                        continue
+
+                    if CustomUser.objects.filter(username=username).exists():
+                        errors.append(f"Row {row_num}: Username exists")
+                        continue
+
+                    if CustomUser.objects.filter(email=email).exists():
+                        errors.append(f"Row {row_num}: Email exists")
+                        continue
+
+                    try:
+                        department = Department.objects.get(id=department_id)
+                    except Department.DoesNotExist:
+                        errors.append(f"Row {row_num}: Invalid department")
+                        continue
+
+                    try:
+                        batch = Batch.objects.get(id=batch_id)
+                    except Batch.DoesNotExist:
+                        errors.append(f"Row {row_num}: Invalid batch")
+                        continue
+
+                    # ✅ Create User
+                    user = CustomUser.objects.create_user(
+                        username=username,
+                        email=email,
+                        password=password,
+                        role="student"
+                    )
+
+                    # ✅ Create Student
+                    Student.objects.create(
+                        user=user,
+                        student_name=student_name,
+                        department=department,
+                        batch=batch
+                    )
+
+                    success_count += 1
+
+                except Exception as e:
+                    errors.append(f"Row {row_num}: {str(e)}")
+
+            # ❌ rollback if any error
+            if errors:
+                transaction.set_rollback(True)
+                return Response({
+                    "status": "failed",
+                    "errors": errors
+                }, status=400)
+
+        return Response({
+            "status": "success",
+            "created": success_count
+        })
+
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+class GenerateStudyPlanView(APIView):
+    """
+    Generate a study plan using Groq API and return it directly.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = StudyPlanRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        subject = serializer.validated_data["subject"]
+        duration = serializer.validated_data["duration"]
+        daily_hours = serializer.validated_data["dailyHours"]
+
+        # 🔹 Updated prompt for real resources
+        prompt = f"""
+            Create a {duration}-day study plan for the subject "{subject}".
+            Each day should include:
+              - day_number
+              - topic_name
+              - tutorial_links (real links from websites )
+              - video_links (real YouTube links from channels)
+            Each day should cover ~{daily_hours} hours of study.
+            Structure the output in JSON format exactly like this:
+            {{
+                "subject": "{subject}",
+                "plan_name": "{subject} - {duration} Day Plan",
+                "time_horizon_days": {duration},
+                "daily_hours": {daily_hours},
+                "details": [
+                    {{
+                        "day_number": 1,
+                        "topic_name": "Topic name here",
+                        "tutorial_links": ["https://realwebsite.com/tutorial"],
+                        "video_links": ["https://youtube.com/realvideo"]
+                    }}
+                ]
+            }}
+            """
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {GROQ_API_KEY}"
+        }
+
+        body = {
+            "messages": [{"role": "user", "content": prompt}],
+            "model": "openai/gpt-oss-120b",
+            "temperature": 1,
+            "max_completion_tokens": 8192,
+            "top_p": 1,
+            "stream": False,
+            "reasoning_effort": "medium"
+        }
+
+        try:
+            response = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers=headers,
+                json=body
+            )
+            response.raise_for_status()
+            data = response.json()
+            return Response(data, status=status.HTTP_200_OK)
+
+        except requests.exceptions.RequestException as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class SubjectListView(APIView):
+    # permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+
+        # query params
+        department_id = request.query_params.get("department")
+        user_filter = request.query_params.get("user")  # ?user=true
+
+        try:
+            # =========================================
+            # 1. FILTER BY DEPARTMENT (PRIORITY)
+            # =========================================
+            if department_id:
+                subjects = Subject.objects.filter(department_id=department_id)
+
+            # =========================================
+            # 2. FILTER BY LOGGED-IN USER
+            # =========================================
+            elif user_filter == "true":
+                department = None
+
+                if user.role == "staff" and hasattr(user, "staff_profile"):
+                    department = user.staff_profile.department
+
+                elif user.role == "student" and hasattr(user, "student_profile"):
+                    department = user.student_profile.department
+
+                if department:
+                        subjects = Subject.objects.filter(department=department)
+                else:
+                    subjects = Subject.objects.all()
+
+            # =========================================
+            # 3. DEFAULT → RETURN ALL SUBJECTS
+            # =========================================
+            else:
+                subjects = Subject.objects.all()
+
+            # serialize
+            serializer = SubjectSerializer(subjects, many=True)
+
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class StaffBatchListView(APIView):
+    # permission_classes = [IsAuthenticated]  # enable if needed
+
+    def get(self, request):
+        user = request.user
+
+        # ✅ Check if staff
+        if not hasattr(user, "staff_profile"):
+            return Response(
+                {"error": "User is not staff"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        staff = user.staff_profile
+
+        # ✅ Get batch mappings
+        mappings = BatchStaffMapping.objects.filter(staff=staff)
+
+        if not mappings.exists():
+            return Response(
+                {"message": "No batches assigned"},
+                status=status.HTTP_200_OK
+            )
+
+        # ✅ Get unique batches
+        batch_ids = mappings.values_list("batch_id", flat=True).distinct()
+
+        batches = Batch.objects.filter(id__in=batch_ids)
+
+        serializer = BatchSerializer(batches, many=True)
+
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class SubjectTopicsView(APIView):
+
+    def get(self, request, subject_id):
+
+        # ✅ validate subject
+        if not Subject.objects.filter(id=subject_id).exists():
+            return Response(
+                {"error": "Invalid subject id"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        topics = Topic.objects.filter(subject_id=subject_id)
+
+        data = [
+            {
+                "id": t.id,
+                "topic_name": t.topic_name
+            }
+            for t in topics
+        ]
+
+        return Response(data)

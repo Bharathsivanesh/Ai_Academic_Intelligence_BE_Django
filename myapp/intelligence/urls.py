@@ -48,6 +48,7 @@ path("admin/students/", AdminStudentListView.as_view()),
 path("admin/students/<int:pk>/", AdminStudentDetailView.as_view()),
 path("admin/students/<int:pk>/update/", AdminStudentUpdateView.as_view()),
 path("admin/students/<int:pk>/delete/", AdminStudentDeleteView.as_view()),
+path("admin/student/bulk-upload/", BulkStudentUploadView.as_view()),
 #staff
 path("staff/dashboard-overview/", StaffDashboardOverview.as_view(), name="staff-dashboard-overview"),
 path("staff-dashboard/", StaffDashboardAnalyticsView.as_view(), name="staff-dashboard"),
@@ -62,4 +63,12 @@ path("study-plan/<int:pk>/", StudyPlanDetailView.as_view()),
 path("plan/day-complete/<int:pk>/", MarkDayCompleteView.as_view()),
 
 path("subject-intelligence/", SubjectIntelligenceView.as_view()),
+
+path("study-plan/", GenerateStudyPlanView.as_view(), name="generate_study_plan"),
+
+
+#drop down
+path("subjects/", SubjectListView.as_view(), name="subject-list"),
+path("staff/batches/", StaffBatchListView.as_view(), name="staff-batches"),
+path("subjects/<int:subject_id>/topics/", SubjectTopicsView.as_view()),
 ]
