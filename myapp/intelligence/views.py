@@ -124,7 +124,7 @@ class AdminCreateExamView(generics.CreateAPIView):
 
     queryset = StudentExam.objects.all()
     serializer_class = StudentExamCreateSerializer
-    permission_classes = [IsAdminUserCustom]
+    # permission_classes = [IsAdminUserCustom]
 
 class AdminDashboardStatsView(APIView):
 
