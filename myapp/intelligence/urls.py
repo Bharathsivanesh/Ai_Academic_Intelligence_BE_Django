@@ -71,4 +71,11 @@ path("study-plan/", GenerateStudyPlanView.as_view(), name="generate_study_plan")
 path("subjects/", SubjectListView.as_view(), name="subject-list"),
 path("staff/batches/", StaffBatchListView.as_view(), name="staff-batches"),
 path("subjects/<int:subject_id>/topics/", SubjectTopicsView.as_view()),
+
+#mark uplaod
+path("staff/get-exam/", GetExamByFiltersView.as_view(), name="get-exam"),
+path("staff/upload-marks/", UploadMarksExcelView.as_view(), name="upload-marks"),
+
+#Trained model
+path("at-risk/", AtRiskStudentsView.as_view(), name="at-risk-students")
 ]
