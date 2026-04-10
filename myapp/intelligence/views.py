@@ -13,10 +13,10 @@ from .models import *
 from .serializers import UserSerializer, MyTokenObtainPairSerializer, StaffCreateSerializer, StaffListSerializer, \
     DepartmentSerializer, BatchStaffMappingSerializer, BatchSerializer, SubjectSerializer, StudentExamCreateSerializer, \
     StudentCreateSerializer, StudentListSerializer, StudyPlanSerializer, StaffUpdateSerializer, StudentUpdateSerializer, \
-    StudyPlanRequestSerializer
+    StudyPlanRequestSerializer, BatchCreateSerializer
 from django.db.models import Avg, Q
 from collections import defaultdict
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 import pandas as pd
 from django.db import transaction,connection
 from django.db.models import Max
@@ -1508,57 +1508,97 @@ class UploadMarksExcelView(APIView):
 class AtRiskStudentsView(APIView):
     def get(self, request):
         results = []
+        errors = []
         students = Student.objects.all()
 
         for student in students:
-            iat1_scores = []
-            iat2_scores = []
-            iat3_scores = []
+            try:
+                iat1_scores = []
+                iat2_scores = []
+                iat3_scores = []
 
-            marks = StudentMarks.objects.filter(
-                student=student
-            ).select_related("exam")
+                marks = StudentMarks.objects.filter(
+                    student=student
+                ).select_related("exam")
 
-            for mark in marks:
-                if mark.max_marks == 0:
+                for mark in marks:
+                    if mark.max_marks == 0:
+                        continue
+
+                    pct = (mark.obtained_marks / mark.max_marks) * 100
+                    exam_type = mark.exam.exam_type
+
+                    if exam_type == "IAT1":
+                        iat1_scores.append(pct)
+                    elif exam_type == "IAT2":
+                        iat2_scores.append(pct)
+                    elif exam_type == "IAT3":
+                        iat3_scores.append(pct)
+
+                # skip if any IAT data is missing
+                if not iat1_scores or not iat2_scores or not iat3_scores:
                     continue
 
-                pct = (mark.obtained_marks / mark.max_marks) * 100
-                exam_type = mark.exam.exam_type
+                iat1 = sum(iat1_scores) / len(iat1_scores)
+                iat2 = sum(iat2_scores) / len(iat2_scores)
+                iat3 = sum(iat3_scores) / len(iat3_scores)
+                avg  = (iat1 + iat2 + iat3) / 3
 
-                if exam_type == "IAT1":
-                    iat1_scores.append(pct)
-                elif exam_type == "IAT2":
-                    iat2_scores.append(pct)
-                elif exam_type == "IAT3":
-                    iat3_scores.append(pct)
+                prediction = predict_student(iat1, iat2, iat3)
 
-            # skip if any IAT is missing
-            if not iat1_scores or not iat2_scores or not iat3_scores:
+                results.append({
+                    "student_id":       student.id,
+                    "student_name":     student.student_name,
+                    "iat1_avg":         round(iat1, 2),
+                    "iat2_avg":         round(iat2, 2),
+                    "iat3_avg":         round(iat3, 2),
+                    "overall_avg":      round(avg, 2),
+                    "will_fail":        prediction["will_fail"],
+                    "risk_level":       prediction["risk_level"],
+                    "risk_probability": prediction["risk_probability"],
+                })
+
+            except FileNotFoundError:
+                return Response(
+                    {"error": "ML model not trained yet. Please run train_model() first."},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE
+                )
+
+            except Exception as e:
+                errors.append({
+                    "student_id": student.id,
+                    "error": str(e)
+                })
                 continue
-
-            iat1 = sum(iat1_scores) / len(iat1_scores)
-            iat2 = sum(iat2_scores) / len(iat2_scores)
-            iat3 = sum(iat3_scores) / len(iat3_scores)
-
-            prediction = predict_student(iat1, iat2, iat3)
-
-            results.append({
-                "student_id": student.id,
-                "student_name": student.student_name,
-                "iat1_avg": round(iat1, 2),
-                "iat2_avg": round(iat2, 2),
-                "iat3_avg": round(iat3, 2),
-                "will_fail": prediction["will_fail"],
-                "risk_level": prediction["risk_level"],
-                "risk_probability": prediction["risk_probability"],
-            })
 
         # sort by risk probability — highest risk first
         results.sort(key=lambda x: x["risk_probability"], reverse=True)
 
-        return Response({
+        high   = [r for r in results if r["risk_level"] == "high"]
+        medium = [r for r in results if r["risk_level"] == "medium"]
+        low    = [r for r in results if r["risk_level"] == "low"]
+
+        response_data = {
             "total_students_analyzed": len(results),
-            "at_risk": [r for r in results if r["risk_level"] in ["high", "medium"]],
-            "safe":    [r for r in results if r["risk_level"] == "low"],
-        }, status=status.HTTP_200_OK)
+            "summary": {
+                "high_risk":   len(high),
+                "medium_risk": len(medium),
+                "low_risk":    len(low),
+            },
+            "at_risk": {
+                "high":   high,
+                "medium": medium,
+            },
+            "safe": low,
+        }
+
+        if errors:
+            response_data["processing_errors"] = errors
+
+        return Response(response_data, status=status.HTTP_200_OK)
+
+
+
+class AdminCreateBatchView(generics.CreateAPIView):
+    serializer_class = BatchCreateSerializer
+    permission_classes = [IsAuthenticated]

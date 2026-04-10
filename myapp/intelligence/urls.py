@@ -30,6 +30,8 @@ path("admin/staff/assign-batch/",AssignStaffToBatchView.as_view(),name="assign-s
 
 #Get All the batches
 path("batches/", BatchListView.as_view(), name="batch-list"),
+
+
 #Get Subject basodn on department id
 path("departments/<int:department_id>/subjects/",SubjectByDepartmentView.as_view(),name="subjects-by-department"),
 
@@ -77,5 +79,9 @@ path("staff/get-exam/", GetExamByFiltersView.as_view(), name="get-exam"),
 path("staff/upload-marks/", UploadMarksExcelView.as_view(), name="upload-marks"),
 
 #Trained model
-path("at-risk/", AtRiskStudentsView.as_view(), name="at-risk-students")
+path("at-risk/", AtRiskStudentsView.as_view(), name="at-risk-students"),
+
+
+#admin enhancement
+path("admin/batches/create/", AdminCreateBatchView.as_view(), name="create-batch"),
 ]
