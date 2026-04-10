@@ -1,5 +1,6 @@
 import pandas as pd
-from intelligence.models import Student, StudentMarks, StudentExam
+import numpy as np
+from intelligence.models import Student, StudentMarks
 
 def generate_dataset():
     rows = []
@@ -27,7 +28,6 @@ def generate_dataset():
             elif exam_type == "IAT3":
                 iat3_scores.append(pct)
 
-        # skip student if no data at all
         if not iat1_scores and not iat2_scores and not iat3_scores:
             continue
 
@@ -36,11 +36,9 @@ def generate_dataset():
         iat3 = sum(iat3_scores) / len(iat3_scores) if iat3_scores else 0
         avg  = (iat1 + iat2 + iat3) / 3
 
-        # label: fail = 1 if average below 40%
-        fail = 1 if avg < 40 else 0
+        fail = 1 if avg < 50 else 0
 
         rows.append({
-            "student_id": student.id,
             "iat1": iat1,
             "iat2": iat2,
             "iat3": iat3,
@@ -48,4 +46,34 @@ def generate_dataset():
             "fail": fail,
         })
 
-    return pd.DataFrame(rows)
+    real_df = pd.DataFrame(rows)
+
+    # ✅ Synthetic balanced data so model learns both pass and fail
+    np.random.seed(42)
+    synthetic_rows = []
+
+    # Failing students (avg < 50) — 100 samples
+    for _ in range(100):
+        iat1 = np.random.uniform(5, 49)
+        iat2 = np.random.uniform(5, 49)
+        iat3 = np.random.uniform(5, 49)
+        avg  = (iat1 + iat2 + iat3) / 3
+        synthetic_rows.append({"iat1": iat1, "iat2": iat2, "iat3": iat3, "avg": avg, "fail": 1})
+
+    # Passing students (avg >= 50) — 100 samples
+    for _ in range(100):
+        iat1 = np.random.uniform(50, 100)
+        iat2 = np.random.uniform(50, 100)
+        iat3 = np.random.uniform(50, 100)
+        avg  = (iat1 + iat2 + iat3) / 3
+        synthetic_rows.append({"iat1": iat1, "iat2": iat2, "iat3": iat3, "avg": avg, "fail": 0})
+
+    synthetic_df = pd.DataFrame(synthetic_rows)
+
+    # Combine real + synthetic
+    final_df = pd.concat([real_df, synthetic_df], ignore_index=True)
+
+    print(f"✅ Dataset: {len(real_df)} real + {len(synthetic_df)} synthetic = {len(final_df)} total")
+    print(f"✅ Class balance:\n{final_df['fail'].value_counts()}")
+
+    return final_df

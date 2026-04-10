@@ -419,3 +419,15 @@ class BatchSerializer(serializers.ModelSerializer):
     class Meta:
         model = Batch
         fields = ["id", "batch_name", "batch_code", "start_year", "end_year"]
+
+class BatchCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Batch
+        fields = ["id", "batch_name", "batch_code", "start_year", "end_year"]
+
+    def validate(self, data):
+        if data["start_year"] >= data["end_year"]:
+            raise serializers.ValidationError("start_year must be less than end_year")
+        if Batch.objects.filter(batch_code=data["batch_code"]).exists():
+            raise serializers.ValidationError("Batch code already exists")
+        return data
