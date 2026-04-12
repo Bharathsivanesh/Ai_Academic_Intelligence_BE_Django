@@ -84,4 +84,6 @@ path("at-risk/", AtRiskStudentsView.as_view(), name="at-risk-students"),
 
 #admin enhancement
 path("admin/batches/create/", AdminCreateBatchView.as_view(), name="create-batch"),
+path("admin/exams/", AdminExamListView.as_view(), name="exam-list"),
+path("subjects/with-topics/", SubjectWithTopicsView.as_view(), name="subjects-with-topics"),
 ]

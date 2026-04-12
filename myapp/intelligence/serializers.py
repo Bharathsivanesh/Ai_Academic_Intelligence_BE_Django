@@ -431,3 +431,48 @@ class BatchCreateSerializer(serializers.ModelSerializer):
         if Batch.objects.filter(batch_code=data["batch_code"]).exists():
             raise serializers.ValidationError("Batch code already exists")
         return data
+
+
+class StudentExamSerializer(serializers.ModelSerializer):
+    subject_name = serializers.CharField(source="subject.subject_name", read_only=True)
+    department_name = serializers.CharField(source="department.department_name", read_only=True)
+    batch_name = serializers.CharField(source="batch.batch_name", read_only=True)
+
+    class Meta:
+        model = StudentExam
+        fields = [
+            "id",
+            "exam_type",
+            "subject", "subject_name",
+            "department", "department_name",
+            "batch", "batch_name",
+            "semester",
+            "exam_date",
+            "file_url",
+            "created_at"
+        ]
+
+class COTopicSerializer(serializers.ModelSerializer):
+    co_id = serializers.CharField(source="co_mappings.first.co_id", read_only=True)
+
+    class Meta:
+        model = Topic
+        fields = ["id", "topic_name", "topic_description"]
+
+class TopicWithCOSerializer(serializers.ModelSerializer):
+    co_ids = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Topic
+        fields = ["id", "topic_name", "topic_description", "co_ids"]
+
+    def get_co_ids(self, obj):
+        # co_mappings is the related_name from COTopicMapping -> Topic
+        return list(obj.co_mappings.values_list("co_id", flat=True))
+
+class SubjectWithTopicsSerializer(serializers.ModelSerializer):
+    topics = TopicWithCOSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Subject
+        fields = ["id", "subject_name", "subject_code", "topics"]
