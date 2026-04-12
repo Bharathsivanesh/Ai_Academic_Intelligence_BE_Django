@@ -13,7 +13,7 @@ from .models import *
 from .serializers import UserSerializer, MyTokenObtainPairSerializer, StaffCreateSerializer, StaffListSerializer, \
     DepartmentSerializer, BatchStaffMappingSerializer, BatchSerializer, SubjectSerializer, StudentExamCreateSerializer, \
     StudentCreateSerializer, StudentListSerializer, StudyPlanSerializer, StaffUpdateSerializer, StudentUpdateSerializer, \
-    StudyPlanRequestSerializer, BatchCreateSerializer
+    StudyPlanRequestSerializer, BatchCreateSerializer, StudentExamSerializer, SubjectWithTopicsSerializer
 from django.db.models import Avg, Q
 from collections import defaultdict
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -1602,3 +1602,16 @@ class AtRiskStudentsView(APIView):
 class AdminCreateBatchView(generics.CreateAPIView):
     serializer_class = BatchCreateSerializer
     permission_classes = [IsAuthenticated]
+
+class AdminExamListView(generics.ListAPIView):
+    serializer_class = StudentExamSerializer  # ✅ was StudentExam (model), should be serializer
+    queryset = StudentExam.objects.select_related(
+        "subject", "department", "batch"
+    ).all().order_by("-created_at")
+
+class SubjectWithTopicsView(generics.ListAPIView):
+    serializer_class = SubjectWithTopicsSerializer
+    queryset = Subject.objects.prefetch_related(
+        "topics",
+        "topics__co_mappings"  # ✅ prefetch CO mappings for each topic
+    ).all()
